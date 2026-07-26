@@ -1,4 +1,6 @@
 <title>Job Scanner — a /scan-triggered job matching pipeline</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
     --bg: #10141c;
@@ -65,6 +67,7 @@
   }
 
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   html, body { margin: 0; padding: 0; }
   body {
     background: var(--bg);
@@ -105,9 +108,47 @@
     color: var(--text-faint);
   }
 
+  /* ---------- Scroll progress ---------- */
+  .scroll-progress {
+    position: fixed; top: 0; left: 0; height: 2px; width: 0%;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    z-index: 100; transition: width 0.08s linear;
+  }
+
+  /* ---------- Sticky section nav ---------- */
+  .site-nav {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px) saturate(1.1);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-nav .wrap {
+    display: flex; align-items: center; gap: 4px;
+    max-width: 900px; overflow-x: auto; scrollbar-width: none;
+    padding-top: 12px; padding-bottom: 12px;
+  }
+  .site-nav .wrap::-webkit-scrollbar { display: none; }
+  .site-nav .brand {
+    font-family: var(--mono); font-size: 0.78rem; color: var(--text); font-weight: 600;
+    padding-right: 14px; margin-right: 6px; border-right: 1px solid var(--border);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .site-nav .brand .dot { color: var(--accent); }
+  .site-nav a.chip {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--text-dim);
+    text-decoration: none; white-space: nowrap; flex-shrink: 0;
+    padding: 6px 11px; border-radius: 999px; border: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .site-nav a.chip:hover { color: var(--text); }
+  .site-nav a.chip.active {
+    color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+    background: var(--accent-soft);
+  }
+
   /* ---------- Hero ---------- */
   .hero {
-    padding: 88px 0 56px;
+    padding: 72px 0 56px;
     border-bottom: 1px solid var(--border);
   }
   .hero .eyebrow { color: var(--accent-2); margin-bottom: 18px; }
@@ -151,8 +192,13 @@
     padding: 20px 22px 22px;
     font-family: var(--mono);
     font-size: 0.87rem;
+    min-height: 168px;
   }
-  .terminal .line { display: flex; gap: 10px; margin: 0 0 7px; white-space: pre-wrap; }
+  .terminal .line {
+    display: flex; gap: 10px; margin: 0 0 7px; white-space: pre-wrap;
+    opacity: 0; transform: translateY(3px);
+  }
+  .terminal .line.shown { opacity: 1; transform: translateY(0); transition: opacity 0.25s ease, transform 0.25s ease; }
   .terminal .prompt { color: var(--accent-2); flex-shrink: 0; }
   .terminal .cmd { color: var(--text); }
   .terminal .out { color: var(--text-dim); }
@@ -163,14 +209,22 @@
     vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
-  @media (prefers-reduced-motion: reduce) { .caret { animation: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .caret { animation: none; }
+    .terminal .line { opacity: 1; transform: none; }
+  }
 
   /* ---------- Section shell ---------- */
-  section { padding: 64px 0; border-bottom: 1px solid var(--border); }
+  section { padding: 56px 0; border-bottom: 1px solid var(--border); scroll-margin-top: 56px; }
   section:last-of-type { border-bottom: none; }
   section > .eyebrow { margin-bottom: 10px; }
-  section h2 { font-size: 1.5rem; margin: 0 0 14px; }
-  section > p.intro { color: var(--text-dim); max-width: 62ch; margin: 0 0 36px; }
+  section h2 { font-size: 1.4rem; margin: 0 0 14px; }
+  section > p.intro { color: var(--text-dim); max-width: 62ch; margin: 0 0 28px; }
+
+  /* ---------- Scroll reveal ---------- */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.5s ease, transform 0.5s ease; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
 
   /* ---------- Pipeline diagram ---------- */
   .pipeline { display: flex; flex-direction: column; gap: 0; }
@@ -179,7 +233,7 @@
     grid-template-columns: 30px 1fr;
     gap: 16px;
     position: relative;
-    padding-bottom: 26px;
+    padding-bottom: 22px;
   }
   .stage:last-child { padding-bottom: 0; }
   .stage .rail {
@@ -190,11 +244,33 @@
   .stage .rail::before {
     content: "";
     position: absolute;
-    top: 26px; bottom: -26px;
+    top: 26px; bottom: -22px;
     width: 1px;
     background: var(--border-strong);
   }
   .stage:last-child .rail::before { display: none; }
+  .stage .rail .pulse {
+    position: absolute; left: 50%; top: 26px; width: 5px; height: 5px; margin-left: -2.5px;
+    border-radius: 50%; background: var(--accent-2);
+    box-shadow: 0 0 8px 1px var(--accent-2);
+    opacity: 0;
+  }
+  .stage:last-child .rail .pulse { display: none; }
+  .pipeline.animate .stage .rail .pulse {
+    animation: travel 2.6s ease-in-out infinite;
+  }
+  .pipeline.animate .stage:nth-child(2) .rail .pulse { animation-delay: 0.35s; }
+  .pipeline.animate .stage:nth-child(3) .rail .pulse { animation-delay: 0.7s; }
+  .pipeline.animate .stage:nth-child(4) .rail .pulse { animation-delay: 1.05s; }
+  .pipeline.animate .stage:nth-child(5) .rail .pulse { animation-delay: 1.4s; }
+  .pipeline.animate .stage:nth-child(6) .rail .pulse { animation-delay: 1.75s; }
+  @keyframes travel {
+    0% { opacity: 0; transform: translateY(0); }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(48px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .pipeline.animate .stage .rail .pulse { animation: none; opacity: 0; } }
   .stage .node {
     width: 26px; height: 26px;
     border-radius: 50%;
@@ -211,89 +287,81 @@
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 16px 18px;
+    padding: 14px 16px;
+    transition: border-color 0.2s;
   }
+  .stage:hover .content { border-color: var(--border-strong); }
   .stage.gate .content { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
   .stage.cheap .content { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
   .stage .content h3 {
-    font-size: 0.92rem; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 0.9rem; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   }
-  .stage .content p { margin: 0; color: var(--text-dim); font-size: 0.91rem; }
-  .stage .content p + p { margin-top: 6px; }
+  .stage .content p { margin: 0; color: var(--text-dim); font-size: 0.88rem; }
+  .stage .content p + p { margin-top: 5px; }
   .tag {
-    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.03em;
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.03em;
     padding: 2px 7px; border-radius: 5px; border: 1px solid var(--border-strong); color: var(--text-dim);
   }
   .tag.parallel { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 40%, var(--border-strong)); background: var(--accent-2-soft); }
   .tag.free { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--border-strong)); background: var(--good-soft); }
   .fan {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 10px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px;
   }
   .fan .src {
     font-family: var(--mono); font-size: 0.78rem; color: var(--text);
     background: var(--bg-inset); border: 1px solid var(--border); border-radius: 7px;
     padding: 8px 10px;
+    transition: border-color 0.2s, transform 0.2s;
   }
+  .fan .src:hover { border-color: color-mix(in srgb, var(--accent-2) 45%, var(--border)); transform: translateY(-1px); }
   .fan .src .k { color: var(--text-faint); font-size: 0.68rem; display: block; margin-top: 2px; }
 
   /* ---------- Decision cards ---------- */
-  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
   .card {
-    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; padding: 20px;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+    transition: border-color 0.2s, transform 0.2s;
   }
-  .card .k { font-family: var(--mono); font-size: 0.72rem; color: var(--accent-2); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; display: block; }
-  .card p { margin: 0; color: var(--text-dim); font-size: 0.93rem; }
-  .card p + p { margin-top: 8px; }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .card .k { font-family: var(--mono); font-size: 0.7rem; color: var(--accent-2); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; display: block; }
+  .card p { margin: 0; color: var(--text-dim); font-size: 0.9rem; }
+  .card p + p { margin-top: 6px; }
   .card strong { color: var(--text); }
 
   /* ---------- Cost / stats ---------- */
   .fig-row {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0;
-    border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 28px;
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 20px;
     background: var(--bg-raised);
   }
   .fig {
-    padding: 20px 16px; text-align: center; border-right: 1px solid var(--border);
+    padding: 18px 14px; text-align: center; border-right: 1px solid var(--border);
     position: relative;
   }
   .fig:last-child { border-right: none; }
-  .fig .num { font-family: var(--mono); font-size: 1.7rem; font-weight: 600; color: var(--text); display: block; }
+  .fig .num { font-family: var(--mono); font-size: 1.6rem; font-weight: 600; color: var(--text); display: block; font-variant-numeric: tabular-nums; }
   .fig .num.good { color: var(--good); }
   .fig .num.warn { color: var(--accent); }
-  .fig .lbl { font-size: 0.76rem; color: var(--text-dim); margin-top: 4px; display: block; }
+  .fig .lbl { font-size: 0.74rem; color: var(--text-dim); margin-top: 4px; display: block; }
   .fig .arrow {
     position: absolute; right: -1px; top: 50%; transform: translate(50%, -50%);
     width: 20px; height: 20px; border-radius: 50%; background: var(--bg-inset);
     border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
     font-family: var(--mono); font-size: 0.7rem; color: var(--text-faint); z-index: 2;
   }
-  .headline-stat {
-    background: linear-gradient(135deg, var(--accent-soft), transparent);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-    border-radius: 10px; padding: 24px 26px; margin-bottom: 24px;
-    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
-  }
-  .headline-stat .big { font-family: var(--mono); font-size: 2.4rem; font-weight: 700; color: var(--accent); }
-  .headline-stat .desc { color: var(--text-dim); font-size: 0.95rem; max-width: 46ch; }
-  .math {
-    font-family: var(--mono); font-size: 0.86rem; color: var(--text-dim);
-    background: var(--bg-inset); border: 1px solid var(--border); border-radius: 8px;
-    padding: 14px 16px; margin: 0;
-  }
-  .math .r { color: var(--text); }
-  .math .op { color: var(--accent-2); }
-
   /* ---------- Table ---------- */
   .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
-  table { border-collapse: collapse; width: 100%; font-size: 0.89rem; min-width: 480px; }
-  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { font-family: var(--mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); background: var(--bg-inset); white-space: nowrap; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 480px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); background: var(--bg-inset); white-space: nowrap; }
   tr:last-child td { border-bottom: none; }
+  tr { transition: background 0.15s; }
+  tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 5%, transparent); }
   td code { background: var(--bg-inset); padding: 2px 6px; border-radius: 5px; font-size: 0.85em; white-space: nowrap; }
-  td.notes { color: var(--text-dim); font-size: 0.86rem; min-width: 260px; }
+  td.notes { color: var(--text-dim); font-size: 0.84rem; min-width: 240px; }
 
   /* ---------- Status / score pills ---------- */
-  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
   .pill {
     font-family: var(--mono); font-size: 0.74rem; padding: 4px 10px; border-radius: 999px;
     border: 1px solid var(--border-strong); color: var(--text-dim);
@@ -303,118 +371,134 @@
   .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border-strong)); background: var(--good-soft); }
   .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border-strong)); background: var(--bad-soft); }
 
-  /* ---------- Gap list ---------- */
-  .gaps { display: flex; flex-direction: column; gap: 12px; }
-  .gap {
-    display: grid; grid-template-columns: 20px 1fr; gap: 12px;
-    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+  /* ---------- Reliability trace (accordion) ---------- */
+  .trace { display: flex; flex-direction: column; gap: 8px; }
+  .trace-item {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
   }
-  .gap .mark { color: var(--text-faint); font-family: var(--mono); }
-  .gap p { margin: 0; color: var(--text-dim); font-size: 0.91rem; }
-  .gap strong { color: var(--text); }
+  .trace-item[open] { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+  .trace-head {
+    display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer;
+    list-style: none; user-select: none;
+  }
+  .trace-head::-webkit-details-marker { display: none; }
+  .trace-head .step-no {
+    font-family: var(--mono); font-size: 0.7rem; color: var(--accent);
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+    border-radius: 6px; padding: 3px 8px; flex-shrink: 0;
+  }
+  .trace-head .status {
+    font-family: var(--mono); font-size: 0.68rem; color: var(--bad);
+    border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--border-strong)); background: var(--bad-soft);
+    border-radius: 5px; padding: 2px 7px; flex-shrink: 0;
+  }
+  .trace-head .status.resolved { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--border-strong)); background: var(--good-soft); }
+  .trace-head h3 { margin: 0; font-size: 0.92rem; flex: 1; }
+  .trace-head .chev { color: var(--text-faint); font-family: var(--mono); transition: transform 0.2s; flex-shrink: 0; }
+  .trace-item[open] .trace-head .chev { transform: rotate(90deg); color: var(--accent); }
+  .trace-body { padding: 0 16px 16px 60px; color: var(--text-dim); font-size: 0.89rem; }
+  .trace-body p { margin: 0; }
+  .trace-body strong { color: var(--text); }
 
-  /* ---------- Skills ---------- */
-  .skills { display: flex; flex-direction: column; gap: 14px; }
-  .skill-row {
-    display: grid; grid-template-columns: 160px 1fr; gap: 16px;
-    padding: 14px 0; border-bottom: 1px solid var(--border); align-items: start;
+  /* ---------- Skills tag grid ---------- */
+  .skill-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .skill-tag {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
   }
-  .skill-row:last-child { border-bottom: none; }
-  .skill-row .cat { font-family: var(--mono); font-size: 0.8rem; color: var(--accent-2); padding-top: 2px; }
-  .skill-row p { margin: 0; font-size: 0.92rem; color: var(--text-dim); }
-  .skill-row strong { color: var(--text); }
-  @media (max-width: 560px) {
-    .skill-row { grid-template-columns: 1fr; gap: 4px; }
+  .skill-tag .cat {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--accent-2);
+    display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.03em;
   }
+  .skill-tag p { margin: 0; font-size: 0.87rem; color: var(--text-dim); }
 
-  /* ---------- Setup checklist ---------- */
-  .checklist { display: flex; flex-direction: column; gap: 0; counter-reset: step; }
-  .step {
-    display: grid; grid-template-columns: 30px 1fr; gap: 14px; padding: 14px 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .step:last-child { border-bottom: none; }
-  .step .num {
-    counter-increment: step; font-family: var(--mono); font-size: 0.8rem; color: var(--text-faint);
-  }
-  .step .num::before { content: counter(step, decimal-leading-zero); }
-  .step p { margin: 0; font-size: 0.93rem; }
-  .step .sub { color: var(--text-dim); font-size: 0.87rem; margin-top: 2px; }
-
-  footer { padding: 40px 0 60px; }
-  footer p { color: var(--text-faint); font-size: 0.85rem; font-family: var(--mono); }
+  footer { padding: 36px 0 56px; }
+  footer p { color: var(--text-faint); font-size: 0.83rem; font-family: var(--mono); }
   footer p.note { max-width: 62ch; line-height: 1.5; }
 
   @media (max-width: 600px) {
-    .hero { padding: 56px 0 40px; }
-    section { padding: 44px 0; }
+    .hero { padding: 48px 0 40px; }
+    section { padding: 40px 0; }
     .fig-row { grid-template-columns: 1fr 1fr; }
     .fig .arrow { display: none; }
+    .trace-body { padding-left: 16px; }
   }
 </style>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<nav class="site-nav">
+  <div class="wrap">
+    <span class="brand">job-scanner<span class="dot">.bot</span></span>
+    <a class="chip" href="#why">Why</a>
+    <a class="chip" href="#pipeline">Pipeline</a>
+    <a class="chip" href="#cost">Cost</a>
+    <a class="chip" href="#reliability">Reliability</a>
+    <a class="chip" href="#decisions">Decisions</a>
+    <a class="chip" href="#stack">Stack</a>
+  </div>
+</nav>
 
 <main>
   <div class="wrap hero">
     <div class="eyebrow">personal project — job search automation</div>
     <h1>Search four job boards at once.<br>Only get told about the <span class="hl">real matches</span>.</h1>
-    <p class="lede">A Telegram bot that runs LinkedIn, Indeed, Glassdoor, and Drushim on command, filters out noise for free with regex, then hands the survivors to an LLM that actually reads each one — title fit, seniority, tech, remote — before anything reaches a phone. Built end-to-end with n8n, Apify, and Claude, with every cost/latency tradeoff measured rather than guessed.</p>
+    <p class="lede">One Telegram command scans LinkedIn, Indeed, Glassdoor and Drushim, filters out noise for free, then lets an AI read every survivor before anything reaches a phone.</p>
 
     <div class="terminal">
-      <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span class="label">telegram — stav_job_scanner_bot</span></div>
-      <div class="body">
+      <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span class="label">telegram — job_scanner_bot</span></div>
+      <div class="body" id="termBody">
         <div class="line"><span class="prompt">you ›</span><span class="cmd">/scan</span></div>
         <div class="line"><span class="prompt">bot  ›</span><span class="out">scraping LinkedIn, Indeed, Glassdoor, Drushim for 5 default roles…</span></div>
         <div class="line"><span class="prompt">bot  ›</span><span class="out">485 postings found <span class="tick">✓</span></span></div>
-        <div class="line"><span class="prompt">bot  ›</span><span class="out">353 survive free keyword pre-filter (Senior/Director/VP rejected, $0 cost)</span></div>
-        <div class="line"><span class="prompt">bot  ›</span><span class="out">322 unique after dedup — batched into 10 Claude calls, not 322</span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="out">353 survive the free keyword filter</span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="out">322 unique, batched into 10 Claude calls</span></div>
         <div class="line"><span class="prompt">bot  ›</span><span class="match">7 new matches</span><span class="out">, sorted by fit score, sending now<span class="caret"></span></span></div>
       </div>
     </div>
   </div>
 
   <div class="wrap">
-    <section>
+    <section id="why" class="reveal">
       <div class="eyebrow">why it exists</div>
-      <h2>The gap between job boards and what you actually want</h2>
-      <p class="intro">Global platforms don't cover Israeli boards. Israeli boards don't cover global platforms. And almost none of them let you filter structurally by the two things that matter most for a narrow search.</p>
+      <h2>No single tool covers both markets</h2>
       <div class="cards">
         <div class="card">
           <span class="k">Coverage</span>
-          <p><strong>No single tool spans both markets.</strong> LinkedIn/Indeed/Glassdoor miss Israeli boards entirely; Drushim and similar sites don't touch global postings.</p>
+          <p>Global boards skip Israel. Israeli boards skip everyone else.</p>
         </div>
         <div class="card">
           <span class="k">Filtering</span>
-          <p><strong>Experience and seniority aren't structured fields.</strong> They live inside free-text descriptions, in Hebrew or English — almost every board treats them as prose, not filters.</p>
+          <p>Seniority is buried in the description, sometimes in Hebrew.</p>
         </div>
         <div class="card">
           <span class="k">The fix</span>
-          <p><strong>Scrapers find candidates, an LLM decides fit.</strong> Each source is queried with a simple keyword search; a Claude node reads every survivor in full before anything is sent.</p>
+          <p>Scrapers find candidates. An LLM decides fit.</p>
         </div>
       </div>
     </section>
 
-    <section>
+    <section id="pipeline" class="reveal">
       <div class="eyebrow">how a /scan runs</div>
       <h2>Pipeline</h2>
-      <p class="intro">Nothing runs on a timer. The whole chain fires only when triggered by a Telegram message, and every stage narrows the set further — cheap filters first, the expensive one last.</p>
+      <p class="intro">Nothing runs on a timer. A Telegram message fires the whole chain, and each stage narrows the set: cheap filters first, the expensive one last.</p>
 
-      <div class="pipeline">
+      <div class="pipeline" id="pipelineDiagram">
         <div class="stage">
-          <div class="rail"><div class="node">1</div></div>
+          <div class="rail"><div class="node">1</div><div class="pulse"></div></div>
           <div class="content">
-            <h3>Telegram trigger <span class="tag">on-demand only</span></h3>
-            <p><code>/scan</code> alone runs a default watchlist of roles; <code>/scan Product Manager, GenAI</code> searches exactly those. No cron — zero cost when you're not looking.</p>
+            <h3>Telegram trigger <span class="tag">on demand</span></h3>
+            <p><code>/scan</code> runs a default watchlist; <code>/scan Business Analyst, Customer Success</code> searches just those. Locked to one Telegram user.</p>
           </div>
         </div>
         <div class="stage">
-          <div class="rail"><div class="node">2</div></div>
+          <div class="rail"><div class="node">2</div><div class="pulse"></div></div>
           <div class="content">
             <h3>Parse requested titles</h3>
-            <p>Splits the message into a list of roles and fans each one out to every scraper below.</p>
+            <p>Splits the message into a list of roles, one per scraper.</p>
           </div>
         </div>
         <div class="stage">
-          <div class="rail"><div class="node">3</div></div>
+          <div class="rail"><div class="node">3</div><div class="pulse"></div></div>
           <div class="content">
             <h3>Scrape in parallel <span class="tag parallel">4 sources</span></h3>
             <div class="fan">
@@ -426,137 +510,177 @@
           </div>
         </div>
         <div class="stage">
-          <div class="rail"><div class="node">4</div></div>
+          <div class="rail"><div class="node">4</div><div class="pulse"></div></div>
           <div class="content">
-            <h3>Merge &amp; normalize</h3>
-            <p>Four different field schemas collapse into one shape: <code>job_id</code>, title, company, location, link, description. <code>job_id</code> itself falls back through a chain — a real source ID, then the posting URL, then title+company — since not every source exposes a clean one.</p>
+            <h3>Merge and normalize</h3>
+            <p>Four schemas collapse into one shape: id, title, company, location, description, posted date.</p>
           </div>
         </div>
         <div class="stage cheap">
-          <div class="rail"><div class="node">✓</div></div>
+          <div class="rail"><div class="node">✓</div><div class="pulse"></div></div>
           <div class="content">
-            <h3>Keyword pre-filter <span class="tag free">$0, no AI</span></h3>
-            <p>A plain regex rejects postings whose <em>title</em> unambiguously signals seniority — Senior/Director/VP/Head of, and Hebrew equivalents — before a single AI token is spent. Deliberately does <em>not</em> reject plain "Manager," which would false-positive on "Product Manager."</p>
+            <h3>Keyword pre-filter <span class="tag free">free, no AI</span></h3>
+            <p>A regex rejects obvious senior titles (Senior, Director, VP, Hebrew equivalents) before a single AI token is spent.</p>
           </div>
         </div>
         <div class="stage gate">
-          <div class="rail"><div class="node">✳</div></div>
+          <div class="rail"><div class="node">✳</div><div class="pulse"></div></div>
           <div class="content">
             <h3>AI match decision <span class="tag">Claude Haiku, chunked</span></h3>
-            <p>Deduplicates by <code>job_id</code>, then splits the survivors into fixed-size chunks sized from <em>measured</em> output cost per decision, not a guess. Each chunk is one Claude call returning a JSON array of decisions — n8n fires one call per chunk automatically, no custom loop needed.</p>
-            <p>Reads every posting, in Hebrew or English, against the requested titles — allowing synonyms, not just exact strings — plus a hard gate: reject anything senior, lead, or requiring more than the stated experience ceiling.</p>
+            <p>Claude reads every remaining posting in Hebrew or English, checks it against the roles you asked for, and rejects anything senior or over-experienced.</p>
           </div>
         </div>
         <div class="stage">
-          <div class="rail"><div class="node">5</div></div>
+          <div class="rail"><div class="node">5</div><div class="pulse"></div></div>
           <div class="content">
             <h3>Dedup against Google Sheets</h3>
-            <p>Every match is checked against a running log before delivery — nothing gets sent twice, ever, even across separate <code>/scan</code> runs weeks apart.</p>
+            <p>Checked against a running log so nothing gets sent twice, even weeks later.</p>
           </div>
         </div>
         <div class="stage">
           <div class="rail"><div class="node">6</div></div>
           <div class="content">
-            <h3>Sort by fit score, then deliver <span class="tag">Telegram</span></h3>
-            <p>Survivors are ranked by the AI's own 0–100 match score before sending, so the strongest fits land first — title, company, score, reasoning, link — and get logged with a <code>status</code> column for tracking applications.</p>
+            <h3>Sort and deliver <span class="tag">Telegram</span></h3>
+            <p>Ranked by fit score, sent to Telegram, logged with a status column.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <section>
-      <div class="eyebrow">cost &amp; efficiency</div>
-      <h2>Every number below is measured, not assumed</h2>
-      <p class="intro">The first working version made one Claude call per posting. It worked, but scaled badly: minutes-long runs, and a system prompt (the full matching criteria) re-sent hundreds of times over. The fix was batching — and getting the batch size right required real token accounting, not a round-number guess.</p>
-
-      <div class="headline-stat">
-        <span class="big">~97%</span>
-        <span class="desc">fewer AI calls on a full default-watchlist run — <strong>10 calls instead of 322</strong> — because the system prompt is paid once per chunk of jobs, not once per job.</span>
-      </div>
+    <section id="cost" class="reveal">
+      <div class="eyebrow">cost and efficiency</div>
+      <h2>Numbers from real runs, not guesses</h2>
+      <p class="intro">The first version called Claude once per posting. It worked but ran slow, and the system prompt got billed hundreds of times over. Batching fixed both.</p>
 
       <div class="fig-row">
-        <div class="fig"><span class="num">485</span><span class="lbl">raw postings scraped</span><span class="arrow">→</span></div>
-        <div class="fig"><span class="num good">353</span><span class="lbl">survive free regex filter</span><span class="arrow">→</span></div>
-        <div class="fig"><span class="num good">322</span><span class="lbl">unique after dedup</span><span class="arrow">→</span></div>
-        <div class="fig"><span class="num warn">10</span><span class="lbl">Claude API calls total</span></div>
+        <div class="fig"><span class="num count" data-target="485">0</span><span class="lbl">raw postings scraped</span><span class="arrow">→</span></div>
+        <div class="fig"><span class="num good count" data-target="353">0</span><span class="lbl">survive the free filter</span><span class="arrow">→</span></div>
+        <div class="fig"><span class="num good count" data-target="322">0</span><span class="lbl">unique after dedup</span><span class="arrow">→</span></div>
+        <div class="fig"><span class="num warn count" data-target="10">0</span><span class="lbl">Claude API calls</span></div>
       </div>
 
-      <p class="math">
-        <span class="r">132 postings</span> rejected by title regex <span class="op">→</span> never billed to Claude at all.<br>
-        Empirically measured <span class="r">~182 tokens</span> per AI decision (not the ~45 originally assumed — found by deliberately overflowing a small output budget and counting what actually fit).<br>
-        <span class="r">8,000</span> max output tokens <span class="op">×</span> <span class="r">0.8</span> safety margin <span class="op">÷</span> <span class="r">182</span> <span class="op">≈</span> <span class="r">35 jobs per chunk</span> — the batch size that fits without silent truncation.<br>
-        <span class="r">322</span> unique jobs <span class="op">÷</span> <span class="r">35</span> <span class="op">≈</span> <span class="r">10 chunks</span> <span class="op">=</span> <span class="r">10 API calls</span>, each returning a full JSON array of decisions.
-      </p>
-
-      <div class="cards" style="margin-top: 24px;">
+      <div class="cards">
         <div class="card">
           <span class="k">Why not one giant call</span>
-          <p>Packing all 322 jobs into a single prompt was tried first — it silently truncated mid-JSON past the model's output ceiling, dropping every job after the cutoff without an error. Chunking by measured token cost fixed it with zero jobs lost.</p>
+          <p>All 322 jobs in a single prompt truncated silently past the output limit. Chunking by measured token cost fixed it with zero jobs lost.</p>
         </div>
         <div class="card">
           <span class="k">Cheap model, on purpose</span>
-          <p>Match/no-match + score + reason is a classification task, not open-ended generation — <strong>Claude Haiku</strong> handles it fully and keeps the whole run's cost negligible even at hundreds of postings.</p>
+          <p>This is a classification task. Claude Haiku handles it easily and keeps the run's cost negligible even at hundreds of postings.</p>
         </div>
       </div>
     </section>
 
-    <section>
+    <section id="reliability" class="reveal">
+      <div class="eyebrow">reliability engineering</div>
+      <h2>The one source that needed real engineering: Drushim</h2>
+      <p class="intro">The other three sources are one HTTP call each. Drushim broke that pattern. Click through what it took to stabilize it.</p>
+
+      <div class="trace">
+        <details class="trace-item" open>
+          <summary class="trace-head">
+            <span class="step-no">01</span>
+            <span class="status">failed</span>
+            <h3>The sync call kept failing</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>With full details on (needed for the AI to read each posting), Drushim visits every listing individually. That pushes total run time past Apify's own ~300s limit on the synchronous endpoint.</p>
+          </div>
+        </details>
+        <details class="trace-item">
+          <summary class="trace-head">
+            <span class="step-no">02</span>
+            <span class="status">failed</span>
+            <h3>The async rewrite broke too</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>Switched to Apify's async API: start the run, poll status, fetch the dataset when done. Worked in testing, then failed quietly in production.</p>
+          </div>
+        </details>
+        <details class="trace-item">
+          <summary class="trace-head">
+            <span class="step-no">03</span>
+            <span class="status">found</span>
+            <h3>Root cause: a hidden platform limit</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>n8n Cloud's Code node has its own hard 60-second execution limit, separate from the workflow timeout setting. It was invisible until it showed up in the execution log.</p>
+          </div>
+        </details>
+        <details class="trace-item">
+          <summary class="trace-head">
+            <span class="step-no">04</span>
+            <span class="status resolved">resolved</span>
+            <h3>Cleans up after itself</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>A failed call doesn't stop the run on Apify's side, it keeps eating concurrency quota. The node now aborts its own runs on timeout and pulls whatever the dataset already collected.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section id="decisions" class="reveal">
       <div class="eyebrow">design decisions</div>
       <h2>Choices that weren't defaults</h2>
       <div class="cards">
         <div class="card">
           <span class="k">Two-tier filtering</span>
-          <p>Cheap regex first, expensive LLM second — the two only overlap on ambiguous cases (seniority stated only in body text), which is exactly what needs judgment, not pattern matching.</p>
+          <p>Free regex first, AI second. They only overlap on genuinely ambiguous cases.</p>
         </div>
         <div class="card">
-          <span class="k">Actually dynamic</span>
-          <p>The AI's matching criteria are built from <strong>whatever titles were requested that run</strong>, not a string hardcoded into the prompt — a one-off search for a role outside the default watchlist still filters correctly.</p>
+          <span class="k">Built from what you ask</span>
+          <p>The AI's matching criteria come from whatever titles were requested that run, not a fixed list.</p>
         </div>
         <div class="card">
-          <span class="k">Two dedup layers, two jobs</span>
-          <p><em>Within a run:</em> the same posting often surfaces under two searched titles — deduplicated by <code>job_id</code> before it reaches the AI. <em>Across runs:</em> a Sheet log stops the same posting from ever being re-sent, even weeks later.</p>
+          <span class="k">Two dedup layers</span>
+          <p>Same posting, two searched titles: deduped before the AI sees it. Same posting, two runs weeks apart: the Sheet remembers.</p>
         </div>
         <div class="card">
-          <span class="k">Vetted, not first result</span>
-          <p>Each Apify actor was picked by comparing rating, review count, and <strong>real 30-day active usage</strong> — a few high-star actors turned out to have single-digit user counts.</p>
+          <span class="k">Picked by real usage</span>
+          <p>Each Apify actor was chosen by rating, review count, and real 30-day usage. Some 5-star actors had almost no active users.</p>
         </div>
       </div>
     </section>
 
-    <section>
+    <section id="stack" class="reveal">
       <div class="eyebrow">stack</div>
       <h2>What runs it</h2>
       <div class="tbl-wrap">
         <table>
           <thead><tr><th>Layer</th><th>Tool</th><th>Role</th></tr></thead>
           <tbody>
-            <tr><td>Orchestration</td><td><code>n8n</code> (Cloud)</td><td>wires every stage above, holds credentials, chunks batches automatically</td></tr>
+            <tr><td>Orchestration</td><td><code>n8n</code> (Cloud)</td><td>wires every stage, holds credentials, chunks batches automatically</td></tr>
             <tr><td>Scraping</td><td><code>Apify</code> actors</td><td>one dedicated actor per job source</td></tr>
-            <tr><td>Matching</td><td><code>Claude Haiku</code></td><td>reads descriptions, decides fit, scores, explains why — in Hebrew or English</td></tr>
-            <tr><td>Delivery</td><td>Telegram Bot API</td><td>trigger in, ranked results out — one chat</td></tr>
-            <tr><td>Dedup + tracking</td><td>Google Sheets</td><td>append-only log of everything sent, plus per-job score and application status</td></tr>
+            <tr><td>Matching</td><td><code>Claude Haiku</code></td><td>reads descriptions, decides fit, scores, explains why</td></tr>
+            <tr><td>Delivery</td><td>Telegram Bot API</td><td>trigger in, ranked results out</td></tr>
+            <tr><td>Dedup and tracking</td><td>Google Sheets</td><td>append-only log with score and application status</td></tr>
           </tbody>
         </table>
       </div>
 
-      <p style="color: var(--text-dim); font-size: 0.9rem; margin: 28px 0 12px;">Apify actors — each field name verified directly against the actor's real input schema, not guessed from the form UI:</p>
+      <p style="color: var(--text-dim); font-size: 0.88rem; margin: 22px 0 10px;">Apify actors, checked against each one's real input schema:</p>
       <div class="tbl-wrap">
         <table>
           <thead><tr><th>Source</th><th>Notes</th></tr></thead>
           <tbody>
-            <tr><td>LinkedIn</td><td class="notes">Takes a full search URL as input, not separate title/location fields.</td></tr>
-            <tr><td>Indeed</td><td class="notes"><code>country</code> + <code>query</code> required — guessed field names (e.g. <code>position</code>) returned zero results until checked against the real schema.</td></tr>
-            <tr><td>Glassdoor</td><td class="notes">Result-count field is named <code>limit</code>, not the more obvious <code>resultsLimit</code>/<code>maxItems</code> — found by inspecting the actor's raw JSON input, not the form labels.</td></tr>
-            <tr><td>Drushim</td><td class="notes"><code>descriptionFormat</code> defaults to <code>all</code> (every format concatenated); set to <code>text</code> — cut per-posting size ~2-3x and was the direct cause of one prompt-too-long failure.</td></tr>
+            <tr><td>LinkedIn</td><td class="notes">Takes a full search URL as input.</td></tr>
+            <tr><td>Indeed</td><td class="notes"><code>country</code> + <code>query</code> required. Guessed field names returned zero results.</td></tr>
+            <tr><td>Glassdoor</td><td class="notes">Result-count field is <code>limit</code>, not <code>maxItems</code>.</td></tr>
+            <tr><td>Drushim</td><td class="notes"><code>descriptionFormat</code> set to <code>text</code> to cut per-posting size. Only source run as an async sequence, see reliability above.</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <section>
+    <section class="reveal">
       <div class="eyebrow">tracking outcomes</div>
-      <h2>Not just delivery — a running log</h2>
-      <p class="intro">Every match sent gets appended to a Sheet with its fit score and an editable application status, so the pipeline doubles as a lightweight applicant-tracking log instead of just a one-way alert feed.</p>
+      <h2>A running log, not just alerts</h2>
+      <p class="intro">Every match gets appended to a Sheet with its fit score and an editable status.</p>
       <div class="pill-row">
         <span class="pill pending">Pending</span>
         <span class="pill applied">Applied</span>
@@ -566,63 +690,191 @@
       </div>
     </section>
 
-    <section>
+    <section class="reveal">
       <div class="eyebrow">skills this project exercised</div>
-      <h2>What building it actually involved</h2>
-      <div class="skills">
-        <div class="skill-row">
+      <h2>What building it involved</h2>
+      <div class="skill-grid">
+        <div class="skill-tag">
           <span class="cat">Workflow automation</span>
-          <p>Designed a multi-stage n8n pipeline end-to-end — trigger, parallel fan-out, conditional filtering, chunked batch processing, and delivery — with <strong>no custom loop code</strong>, relying on n8n's per-item execution model instead.</p>
+          <p>Multi-stage n8n pipeline: trigger, fan-out, filtering, batching, delivery. No custom loop code.</p>
         </div>
-        <div class="skill-row">
+        <div class="skill-tag">
           <span class="cat">API integration</span>
-          <p>Wired four independent third-party APIs (Apify actors) with mismatched schemas into one normalized shape; caught and fixed multiple guessed-field-name failures by verifying real input schemas directly rather than trusting form labels.</p>
+          <p>Four mismatched Apify schemas into one shape. Fixed several guessed field names along the way.</p>
         </div>
-        <div class="skill-row">
-          <span class="cat">Prompt engineering &amp; cost design</span>
-          <p>Moved from one-call-per-item to a measured, chunked batching strategy after diagnosing a silent output-truncation bug — sizing batches from empirically observed token cost per decision instead of an assumed number.</p>
+        <div class="skill-tag">
+          <span class="cat">Prompt engineering</span>
+          <p>Moved from one call per job to measured batch sizing after a silent truncation bug.</p>
         </div>
-        <div class="skill-row">
-          <span class="cat">Debugging under partial information</span>
-          <p>Root-caused a token-count discrepancy (322 sent vs 321 decisions returned) by reconstructing the pipeline's dedup math from raw execution data, distinguishing a real bug from expected/negligible loss.</p>
+        <div class="skill-tag">
+          <span class="cat">Debugging</span>
+          <p>Traced a 322-vs-321 count mismatch back to expected dedup, not a bug.</p>
         </div>
-        <div class="skill-row">
+        <div class="skill-tag">
           <span class="cat">Bilingual data handling</span>
-          <p>Built matching logic (regex pre-filter and LLM prompt) that treats Hebrew and English job postings as first-class, including seniority-signal detection in both languages.</p>
+          <p>Regex and prompt both treat Hebrew and English postings as first-class.</p>
+        </div>
+        <div class="skill-tag">
+          <span class="cat">Platform diagnosis</span>
+          <p>Found n8n's undocumented 60-second Code node limit by reading raw execution logs.</p>
         </div>
       </div>
     </section>
 
-    <section>
-      <div class="eyebrow">transparency</div>
-      <h2>What's not covered yet</h2>
-      <div class="gaps">
-        <div class="gap"><span class="mark">—</span><p><strong>AllJobs.co.il &amp; JobMaster.co.il</strong> — no ready-made Apify actor exists for either, verified directly against the store. Would need a custom scraper.</p></div>
-        <div class="gap"><span class="mark">—</span><p><strong>Comeet-hosted career pages</strong> — a dedicated actor exists but scrapes one company at a time rather than searching broadly; needs a maintained company list, not yet wired in.</p></div>
-        <div class="gap"><span class="mark">—</span><p><strong>Telegram/WhatsApp job groups</strong> — no ready tool; would need a custom listener feeding the same AI gate.</p></div>
-        <div class="gap"><span class="mark">—</span><p><strong>Still developer-facing UX</strong> — no <code>/help</code>, no way to persist a custom role list without retyping it, no 👍/👎 feedback loop to teach the filter over time.</p></div>
-        <div class="gap"><span class="mark">—</span><p><strong>No spend guard yet</strong> — nothing currently caps Apify/Claude usage per day, worth adding given a mid-build session where Apify credits ran out unexpectedly.</p></div>
-        <div class="gap"><span class="mark">—</span><p><strong>Cross-source dedup is exact, not fuzzy</strong> — the same real posting on two different boards with two different <code>job_id</code>s is currently sent twice.</p></div>
-      </div>
-    </section>
-
-    <section>
-      <div class="eyebrow">setup</div>
-      <h2>Standing it up</h2>
-      <div class="checklist">
-        <div class="step"><div class="num"></div><div><p>Create a Telegram bot via <strong>@BotFather</strong>, save the token and your chat ID.</p></div></div>
-        <div class="step"><div class="num"></div><div><p>Create an <strong>Apify</strong> account and API token.</p><div class="sub">Powers all four scrapers through one credential.</div></div></div>
-        <div class="step"><div class="num"></div><div><p>Create an <strong>n8n Cloud</strong> workspace, import the workflow, connect Telegram, Apify, Anthropic, and Google Sheets credentials.</p></div></div>
-        <div class="step"><div class="num"></div><div><p>Create a Google Sheet with columns: <code>job_id</code>, <code>title</code>, <code>company</code>, <code>link</code>, <code>date_sent</code>, <code>score</code>, <code>status</code>.</p><div class="sub">Add a dropdown data-validation rule on <code>status</code> (Pending / Applied / In Process / Rejected / Offer / Not Relevant) for one-click updates.</div></div></div>
-        <div class="step"><div class="num"></div><div><p>Message the bot <code>/scan</code> — or <code>/scan Product Manager, GenAI</code> for a specific search.</p></div></div>
-      </div>
-    </section>
   </div>
 
   <footer>
     <div class="wrap">
       <p>Built with n8n · Apify · Claude Haiku · Telegram · Google Sheets</p>
-      <p class="note">Working end-to-end, live-tested: a full default-watchlist run pulls ~485 raw postings, ~353 survive the free pre-filter, dedup brings it to ~322 unique, and 10 chunked Claude calls evaluate all of them — no truncation, no silently dropped jobs.</p>
+      <p class="note">Personal project, live-tested end to end.</p>
     </div>
   </footer>
 </main>
+
+<script>
+(function () {
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var progressBar = document.getElementById("scrollProgress");
+  function updateProgress() {
+    var h = document.documentElement;
+    var scrolled = h.scrollTop;
+    var height = h.scrollHeight - h.clientHeight;
+    progressBar.style.width = (height > 0 ? (scrolled / height) * 100 : 0) + "%";
+  }
+  document.addEventListener("scroll", updateProgress, { passive: true });
+  updateProgress();
+
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll(".site-nav a.chip"));
+  var navTargets = navLinks
+    .map(function (a) {
+      var id = a.getAttribute("href").slice(1);
+      return { link: a, el: document.getElementById(id) };
+    })
+    .filter(function (t) { return t.el; });
+
+  function setActive(id) {
+    navTargets.forEach(function (t) {
+      t.link.classList.toggle("active", t.el.id === id);
+    });
+  }
+  if ("IntersectionObserver" in window && navTargets.length) {
+    var navObserver = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) setActive(entry.target.id);
+        });
+      },
+      { rootMargin: "-45% 0px -50% 0px" }
+    );
+    navTargets.forEach(function (t) { navObserver.observe(t.el); });
+  }
+
+  var revealEls = Array.prototype.slice.call(document.querySelectorAll(".reveal"));
+  if ("IntersectionObserver" in window && !reduceMotion) {
+    var revealObserver = new IntersectionObserver(
+      function (entries, obs) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("visible");
+            obs.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -8% 0px" }
+    );
+    revealEls.forEach(function (el) { revealObserver.observe(el); });
+  } else {
+    revealEls.forEach(function (el) { el.classList.add("visible"); });
+  }
+
+  var pipeline = document.getElementById("pipelineDiagram");
+  if (pipeline) {
+    if ("IntersectionObserver" in window && !reduceMotion) {
+      var pipeObserver = new IntersectionObserver(
+        function (entries, obs) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              pipeline.classList.add("animate");
+              obs.disconnect();
+            }
+          });
+        },
+        { threshold: 0.2 }
+      );
+      pipeObserver.observe(pipeline);
+    }
+  }
+
+  var counters = Array.prototype.slice.call(document.querySelectorAll(".count"));
+  function animateCount(el) {
+    var target = parseInt(el.getAttribute("data-target"), 10) || 0;
+    var suffix = el.getAttribute("data-suffix") || "";
+    if (reduceMotion) {
+      el.textContent = target + suffix;
+      return;
+    }
+    var duration = 900;
+    var start = null;
+    function step(ts) {
+      if (start === null) start = ts;
+      var progress = Math.min((ts - start) / duration, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(eased * target) + suffix;
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  if ("IntersectionObserver" in window && counters.length) {
+    var countObserver = new IntersectionObserver(
+      function (entries, obs) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            animateCount(entry.target);
+            obs.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.6 }
+    );
+    counters.forEach(function (el) { countObserver.observe(el); });
+  } else {
+    counters.forEach(function (el) {
+      el.textContent = (el.getAttribute("data-target") || "0") + (el.getAttribute("data-suffix") || "");
+    });
+  }
+
+  var termLines = Array.prototype.slice.call(document.querySelectorAll("#termBody .line"));
+  if (reduceMotion) {
+    termLines.forEach(function (l) { l.classList.add("shown"); });
+  } else {
+    termLines.forEach(function (l) { l.style.display = "none"; });
+    var i = 0;
+    function revealNext() {
+      if (i >= termLines.length) return;
+      var line = termLines[i];
+      line.style.display = "flex";
+      requestAnimationFrame(function () { line.classList.add("shown"); });
+      i += 1;
+      setTimeout(revealNext, i === 1 ? 260 : 520);
+    }
+    var termBody = document.getElementById("termBody");
+    if ("IntersectionObserver" in window && termBody) {
+      var termObserver = new IntersectionObserver(
+        function (entries, obs) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              revealNext();
+              obs.disconnect();
+            }
+          });
+        },
+        { threshold: 0.3 }
+      );
+      termObserver.observe(termBody);
+    } else {
+      revealNext();
+    }
+  }
+})();
+</script>
