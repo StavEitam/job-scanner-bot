@@ -1,0 +1,880 @@
+<title>Job Scanner — a /scan-triggered job matching pipeline</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #10141c;
+    --bg-raised: #171c26;
+    --bg-inset: #0b0e14;
+    --text: #e7eaf0;
+    --text-dim: #8891a3;
+    --text-faint: #565f70;
+    --accent: #ffb238;
+    --accent-soft: #ffb2381a;
+    --accent-2: #5fd4c4;
+    --accent-2-soft: #5fd4c41a;
+    --good: #6fcf7d;
+    --good-soft: #6fcf7d1a;
+    --bad: #ef6f6f;
+    --bad-soft: #ef6f6f1a;
+    --border: rgba(231, 234, 240, 0.1);
+    --border-strong: rgba(231, 234, 240, 0.18);
+    --mono: ui-monospace, "SFMono-Regular", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color-scheme: dark;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f8;
+      --bg-raised: #ffffff;
+      --bg-inset: #eceef2;
+      --text: #161a22;
+      --text-dim: #5b6472;
+      --text-faint: #8991a0;
+      --accent: #c96f0a;
+      --accent-soft: #c96f0a14;
+      --accent-2: #1f8f7d;
+      --accent-2-soft: #1f8f7d14;
+      --good: #2f9e46;
+      --good-soft: #2f9e4614;
+      --bad: #c94343;
+      --bad-soft: #c9434314;
+      --border: rgba(22, 26, 34, 0.09);
+      --border-strong: rgba(22, 26, 34, 0.16);
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10141c; --bg-raised: #171c26; --bg-inset: #0b0e14;
+    --text: #e7eaf0; --text-dim: #8891a3; --text-faint: #565f70;
+    --accent: #ffb238; --accent-soft: #ffb2381a;
+    --accent-2: #5fd4c4; --accent-2-soft: #5fd4c41a;
+    --good: #6fcf7d; --good-soft: #6fcf7d1a;
+    --bad: #ef6f6f; --bad-soft: #ef6f6f1a;
+    --border: rgba(231, 234, 240, 0.1); --border-strong: rgba(231, 234, 240, 0.18);
+    color-scheme: dark;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --bg-raised: #ffffff; --bg-inset: #eceef2;
+    --text: #161a22; --text-dim: #5b6472; --text-faint: #8991a0;
+    --accent: #c96f0a; --accent-soft: #c96f0a14;
+    --accent-2: #1f8f7d; --accent-2-soft: #1f8f7d14;
+    --good: #2f9e46; --good-soft: #2f9e4614;
+    --bad: #c94343; --bad-soft: #c9434314;
+    --border: rgba(22, 26, 34, 0.09); --border-strong: rgba(22, 26, 34, 0.16);
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 48px 48px;
+    opacity: 0.35;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black, transparent 70%);
+  }
+
+  main { position: relative; z-index: 1; }
+
+  .wrap { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+  a { color: var(--accent-2); }
+
+  code, .mono { font-family: var(--mono); }
+
+  h1, h2, h3 { font-family: var(--mono); font-weight: 600; text-wrap: balance; letter-spacing: -0.01em; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--text-faint);
+  }
+
+  /* ---------- Scroll progress ---------- */
+  .scroll-progress {
+    position: fixed; top: 0; left: 0; height: 2px; width: 0%;
+    background: linear-gradient(90deg, var(--accent-2), var(--accent));
+    z-index: 100; transition: width 0.08s linear;
+  }
+
+  /* ---------- Sticky section nav ---------- */
+  .site-nav {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px) saturate(1.1);
+    border-bottom: 1px solid var(--border);
+  }
+  .site-nav .wrap {
+    display: flex; align-items: center; gap: 4px;
+    max-width: 900px; overflow-x: auto; scrollbar-width: none;
+    padding-top: 12px; padding-bottom: 12px;
+  }
+  .site-nav .wrap::-webkit-scrollbar { display: none; }
+  .site-nav .brand {
+    font-family: var(--mono); font-size: 0.78rem; color: var(--text); font-weight: 600;
+    padding-right: 14px; margin-right: 6px; border-right: 1px solid var(--border);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .site-nav .brand .dot { color: var(--accent); }
+  .site-nav a.chip {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--text-dim);
+    text-decoration: none; white-space: nowrap; flex-shrink: 0;
+    padding: 6px 11px; border-radius: 999px; border: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .site-nav a.chip:hover { color: var(--text); }
+  .site-nav a.chip.active {
+    color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+    background: var(--accent-soft);
+  }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: 72px 0 56px;
+    border-bottom: 1px solid var(--border);
+  }
+  .hero .eyebrow { color: var(--accent-2); margin-bottom: 18px; }
+  .hero h1 {
+    font-size: clamp(2rem, 4.2vw, 2.9rem);
+    line-height: 1.14;
+    margin: 0 0 20px;
+  }
+  .hero h1 .hl { color: var(--accent); }
+  .hero p.lede {
+    font-size: 1.09rem;
+    color: var(--text-dim);
+    max-width: 58ch;
+    margin: 0 0 36px;
+  }
+
+  .terminal {
+    background: var(--bg-inset);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px -30px rgba(0,0,0,0.6);
+  }
+  .terminal .bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-raised);
+  }
+  .terminal .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+  .terminal .bar span.label {
+    margin-left: 8px;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+  .terminal .body {
+    padding: 20px 22px 22px;
+    font-family: var(--mono);
+    font-size: 0.87rem;
+    min-height: 168px;
+  }
+  .terminal .line {
+    display: flex; gap: 10px; margin: 0 0 7px; white-space: pre-wrap;
+    opacity: 0; transform: translateY(3px);
+  }
+  .terminal .line.shown { opacity: 1; transform: translateY(0); transition: opacity 0.25s ease, transform 0.25s ease; }
+  .terminal .prompt { color: var(--accent-2); flex-shrink: 0; }
+  .terminal .cmd { color: var(--text); }
+  .terminal .out { color: var(--text-dim); }
+  .terminal .tick { color: var(--good); }
+  .terminal .match { color: var(--accent); font-weight: 600; }
+  .caret {
+    display: inline-block; width: 7px; height: 1em; background: var(--accent);
+    vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) {
+    .caret { animation: none; }
+    .terminal .line { opacity: 1; transform: none; }
+  }
+
+  /* ---------- Section shell ---------- */
+  section { padding: 56px 0; border-bottom: 1px solid var(--border); scroll-margin-top: 56px; }
+  section:last-of-type { border-bottom: none; }
+  section > .eyebrow { margin-bottom: 10px; }
+  section h2 { font-size: 1.4rem; margin: 0 0 14px; }
+  section > p.intro { color: var(--text-dim); max-width: 62ch; margin: 0 0 28px; }
+
+  /* ---------- Scroll reveal ---------- */
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity 0.5s ease, transform 0.5s ease; }
+  .reveal.visible { opacity: 1; transform: translateY(0); }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* ---------- Pipeline diagram ---------- */
+  .pipeline { display: flex; flex-direction: column; gap: 0; }
+  .stage {
+    display: grid;
+    grid-template-columns: 30px 1fr;
+    gap: 16px;
+    position: relative;
+    padding-bottom: 22px;
+  }
+  .stage:last-child { padding-bottom: 0; }
+  .stage .rail {
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+  .stage .rail::before {
+    content: "";
+    position: absolute;
+    top: 26px; bottom: -22px;
+    width: 1px;
+    background: var(--border-strong);
+  }
+  .stage:last-child .rail::before { display: none; }
+  .stage .rail .pulse {
+    position: absolute; left: 50%; top: 26px; width: 5px; height: 5px; margin-left: -2.5px;
+    border-radius: 50%; background: var(--accent-2);
+    box-shadow: 0 0 8px 1px var(--accent-2);
+    opacity: 0;
+  }
+  .stage:last-child .rail .pulse { display: none; }
+  .pipeline.animate .stage .rail .pulse {
+    animation: travel 2.6s ease-in-out infinite;
+  }
+  .pipeline.animate .stage:nth-child(2) .rail .pulse { animation-delay: 0.35s; }
+  .pipeline.animate .stage:nth-child(3) .rail .pulse { animation-delay: 0.7s; }
+  .pipeline.animate .stage:nth-child(4) .rail .pulse { animation-delay: 1.05s; }
+  .pipeline.animate .stage:nth-child(5) .rail .pulse { animation-delay: 1.4s; }
+  .pipeline.animate .stage:nth-child(6) .rail .pulse { animation-delay: 1.75s; }
+  @keyframes travel {
+    0% { opacity: 0; transform: translateY(0); }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { opacity: 0; transform: translateY(48px); }
+  }
+  @media (prefers-reduced-motion: reduce) { .pipeline.animate .stage .rail .pulse { animation: none; opacity: 0; } }
+  .stage .node {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 0.68rem; color: var(--text-dim);
+    z-index: 1;
+    flex-shrink: 0;
+  }
+  .stage.gate .node { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+  .stage.cheap .node { border-color: var(--good); color: var(--good); background: var(--good-soft); }
+  .stage .content {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    transition: border-color 0.2s;
+  }
+  .stage:hover .content { border-color: var(--border-strong); }
+  .stage.gate .content { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .stage.cheap .content { border-color: color-mix(in srgb, var(--good) 45%, var(--border)); }
+  .stage .content h3 {
+    font-size: 0.9rem; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  }
+  .stage .content p { margin: 0; color: var(--text-dim); font-size: 0.88rem; }
+  .stage .content p + p { margin-top: 5px; }
+  .tag {
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.03em;
+    padding: 2px 7px; border-radius: 5px; border: 1px solid var(--border-strong); color: var(--text-dim);
+  }
+  .tag.parallel { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 40%, var(--border-strong)); background: var(--accent-2-soft); }
+  .tag.free { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--border-strong)); background: var(--good-soft); }
+  .fan {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px;
+  }
+  .fan .src {
+    font-family: var(--mono); font-size: 0.78rem; color: var(--text);
+    background: var(--bg-inset); border: 1px solid var(--border); border-radius: 7px;
+    padding: 8px 10px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .fan .src:hover { border-color: color-mix(in srgb, var(--accent-2) 45%, var(--border)); transform: translateY(-1px); }
+  .fan .src .k { color: var(--text-faint); font-size: 0.68rem; display: block; margin-top: 2px; }
+
+  /* ---------- Decision cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; padding: 18px;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .card .k { font-family: var(--mono); font-size: 0.7rem; color: var(--accent-2); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 8px; display: block; }
+  .card p { margin: 0; color: var(--text-dim); font-size: 0.9rem; }
+  .card p + p { margin-top: 6px; }
+  .card strong { color: var(--text); }
+
+  /* ---------- Cost / stats ---------- */
+  .fig-row {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0;
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 20px;
+    background: var(--bg-raised);
+  }
+  .fig {
+    padding: 18px 14px; text-align: center; border-right: 1px solid var(--border);
+    position: relative;
+  }
+  .fig:last-child { border-right: none; }
+  .fig .num { font-family: var(--mono); font-size: 1.6rem; font-weight: 600; color: var(--text); display: block; font-variant-numeric: tabular-nums; }
+  .fig .num.good { color: var(--good); }
+  .fig .num.warn { color: var(--accent); }
+  .fig .lbl { font-size: 0.74rem; color: var(--text-dim); margin-top: 4px; display: block; }
+  .fig .arrow {
+    position: absolute; right: -1px; top: 50%; transform: translate(50%, -50%);
+    width: 20px; height: 20px; border-radius: 50%; background: var(--bg-inset);
+    border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 0.7rem; color: var(--text-faint); z-index: 2;
+  }
+  /* ---------- Table ---------- */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.87rem; min-width: 480px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint); background: var(--bg-inset); white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  tr { transition: background 0.15s; }
+  tbody tr:hover { background: color-mix(in srgb, var(--accent-2) 5%, transparent); }
+  td code { background: var(--bg-inset); padding: 2px 6px; border-radius: 5px; font-size: 0.85em; white-space: nowrap; }
+  td.notes { color: var(--text-dim); font-size: 0.84rem; min-width: 240px; }
+
+  /* ---------- Status / score pills ---------- */
+  .pill-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .pill {
+    font-family: var(--mono); font-size: 0.74rem; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border-strong); color: var(--text-dim);
+  }
+  .pill.pending { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border-strong)); background: var(--accent-soft); }
+  .pill.applied { color: var(--accent-2); border-color: color-mix(in srgb, var(--accent-2) 45%, var(--border-strong)); background: var(--accent-2-soft); }
+  .pill.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, var(--border-strong)); background: var(--good-soft); }
+  .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--border-strong)); background: var(--bad-soft); }
+
+  /* ---------- Reliability trace (accordion) ---------- */
+  .trace { display: flex; flex-direction: column; gap: 8px; }
+  .trace-item {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  .trace-item[open] { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+  .trace-head {
+    display: flex; align-items: center; gap: 12px; padding: 13px 16px; cursor: pointer;
+    list-style: none; user-select: none;
+  }
+  .trace-head::-webkit-details-marker { display: none; }
+  .trace-head .step-no {
+    font-family: var(--mono); font-size: 0.7rem; color: var(--accent);
+    background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border-strong));
+    border-radius: 6px; padding: 3px 8px; flex-shrink: 0;
+  }
+  .trace-head .status {
+    font-family: var(--mono); font-size: 0.68rem; color: var(--bad);
+    border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--border-strong)); background: var(--bad-soft);
+    border-radius: 5px; padding: 2px 7px; flex-shrink: 0;
+  }
+  .trace-head .status.resolved { color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, var(--border-strong)); background: var(--good-soft); }
+  .trace-head h3 { margin: 0; font-size: 0.92rem; flex: 1; }
+  .trace-head .chev { color: var(--text-faint); font-family: var(--mono); transition: transform 0.2s; flex-shrink: 0; }
+  .trace-item[open] .trace-head .chev { transform: rotate(90deg); color: var(--accent); }
+  .trace-body { padding: 0 16px 16px 60px; color: var(--text-dim); font-size: 0.89rem; }
+  .trace-body p { margin: 0; }
+  .trace-body strong { color: var(--text); }
+
+  /* ---------- Skills tag grid ---------- */
+  .skill-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .skill-tag {
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .skill-tag .cat {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--accent-2);
+    display: block; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .skill-tag p { margin: 0; font-size: 0.87rem; color: var(--text-dim); }
+
+  footer { padding: 36px 0 56px; }
+  footer p { color: var(--text-faint); font-size: 0.83rem; font-family: var(--mono); }
+  footer p.note { max-width: 62ch; line-height: 1.5; }
+
+  @media (max-width: 600px) {
+    .hero { padding: 48px 0 40px; }
+    section { padding: 40px 0; }
+    .fig-row { grid-template-columns: 1fr 1fr; }
+    .fig .arrow { display: none; }
+    .trace-body { padding-left: 16px; }
+  }
+</style>
+
+<div class="scroll-progress" id="scrollProgress"></div>
+
+<nav class="site-nav">
+  <div class="wrap">
+    <span class="brand">job-scanner<span class="dot">.bot</span></span>
+    <a class="chip" href="#why">Why</a>
+    <a class="chip" href="#pipeline">Pipeline</a>
+    <a class="chip" href="#cost">Cost</a>
+    <a class="chip" href="#reliability">Reliability</a>
+    <a class="chip" href="#decisions">Decisions</a>
+    <a class="chip" href="#stack">Stack</a>
+  </div>
+</nav>
+
+<main>
+  <div class="wrap hero">
+    <div class="eyebrow">personal project — job search automation</div>
+    <h1>Search four job boards at once.<br>Only get told about the <span class="hl">real matches</span>.</h1>
+    <p class="lede">One Telegram command scans LinkedIn, Indeed, Glassdoor and Drushim, filters out noise for free, then lets an AI read every survivor before anything reaches a phone.</p>
+
+    <div class="terminal">
+      <div class="bar"><div class="dot"></div><div class="dot"></div><div class="dot"></div><span class="label">telegram — job_scanner_bot</span></div>
+      <div class="body" id="termBody">
+        <div class="line"><span class="prompt">you ›</span><span class="cmd">/scan</span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="out">scraping LinkedIn, Indeed, Glassdoor, Drushim for 5 default roles…</span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="out">485 postings found <span class="tick">✓</span></span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="out">353 survive the free keyword filter</span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="out">322 unique, batched into 10 Claude calls</span></div>
+        <div class="line"><span class="prompt">bot  ›</span><span class="match">7 new matches</span><span class="out">, sorted by fit score, sending now<span class="caret"></span></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <section id="why" class="reveal">
+      <div class="eyebrow">why it exists</div>
+      <h2>No single tool covers both markets</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="k">Coverage</span>
+          <p>Global boards skip Israel. Israeli boards skip everyone else.</p>
+        </div>
+        <div class="card">
+          <span class="k">Filtering</span>
+          <p>Seniority is buried in the description, sometimes in Hebrew.</p>
+        </div>
+        <div class="card">
+          <span class="k">The fix</span>
+          <p>Scrapers find candidates. An LLM decides fit.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="pipeline" class="reveal">
+      <div class="eyebrow">how a /scan runs</div>
+      <h2>Pipeline</h2>
+      <p class="intro">Nothing runs on a timer. A Telegram message fires the whole chain, and each stage narrows the set: cheap filters first, the expensive one last.</p>
+
+      <div class="pipeline" id="pipelineDiagram">
+        <div class="stage">
+          <div class="rail"><div class="node">1</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>Telegram trigger <span class="tag">on demand</span></h3>
+            <p><code>/scan</code> runs a default watchlist; <code>/scan Business Analyst, Customer Success</code> searches just those. Locked to one Telegram user.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="rail"><div class="node">2</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>Parse requested titles</h3>
+            <p>Splits the message into a list of roles, one per scraper.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="rail"><div class="node">3</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>Scrape in parallel <span class="tag parallel">4 sources</span></h3>
+            <div class="fan">
+              <div class="src">LinkedIn<span class="k">Apify actor</span></div>
+              <div class="src">Indeed<span class="k">Apify actor</span></div>
+              <div class="src">Glassdoor<span class="k">Apify actor</span></div>
+              <div class="src">Drushim<span class="k">Israel, Hebrew</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="rail"><div class="node">4</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>Merge and normalize</h3>
+            <p>Four schemas collapse into one shape: id, title, company, location, description, posted date.</p>
+          </div>
+        </div>
+        <div class="stage cheap">
+          <div class="rail"><div class="node">✓</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>Keyword pre-filter <span class="tag free">free, no AI</span></h3>
+            <p>A regex rejects obvious senior titles (Senior, Director, VP, Hebrew equivalents) before a single AI token is spent.</p>
+          </div>
+        </div>
+        <div class="stage gate">
+          <div class="rail"><div class="node">✳</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>AI match decision <span class="tag">Claude Haiku, chunked</span></h3>
+            <p>Claude reads every remaining posting in Hebrew or English, checks it against the roles you asked for, and rejects anything senior or over-experienced.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="rail"><div class="node">5</div><div class="pulse"></div></div>
+          <div class="content">
+            <h3>Dedup against Google Sheets</h3>
+            <p>Checked against a running log so nothing gets sent twice, even weeks later.</p>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="rail"><div class="node">6</div></div>
+          <div class="content">
+            <h3>Sort and deliver <span class="tag">Telegram</span></h3>
+            <p>Ranked by fit score, sent to Telegram, logged with a status column.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="cost" class="reveal">
+      <div class="eyebrow">cost and efficiency</div>
+      <h2>Numbers from real runs, not guesses</h2>
+      <p class="intro">The first version called Claude once per posting. It worked but ran slow, and the system prompt got billed hundreds of times over. Batching fixed both.</p>
+
+      <div class="fig-row">
+        <div class="fig"><span class="num count" data-target="485">0</span><span class="lbl">raw postings scraped</span><span class="arrow">→</span></div>
+        <div class="fig"><span class="num good count" data-target="353">0</span><span class="lbl">survive the free filter</span><span class="arrow">→</span></div>
+        <div class="fig"><span class="num good count" data-target="322">0</span><span class="lbl">unique after dedup</span><span class="arrow">→</span></div>
+        <div class="fig"><span class="num warn count" data-target="10">0</span><span class="lbl">Claude API calls</span></div>
+      </div>
+
+      <div class="cards">
+        <div class="card">
+          <span class="k">Why not one giant call</span>
+          <p>All 322 jobs in a single prompt truncated silently past the output limit. Chunking by measured token cost fixed it with zero jobs lost.</p>
+        </div>
+        <div class="card">
+          <span class="k">Cheap model, on purpose</span>
+          <p>This is a classification task. Claude Haiku handles it easily and keeps the run's cost negligible even at hundreds of postings.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="reliability" class="reveal">
+      <div class="eyebrow">reliability engineering</div>
+      <h2>The one source that needed real engineering: Drushim</h2>
+      <p class="intro">The other three sources are one HTTP call each. Drushim broke that pattern. Click through what it took to stabilize it.</p>
+
+      <div class="trace">
+        <details class="trace-item" open>
+          <summary class="trace-head">
+            <span class="step-no">01</span>
+            <span class="status">failed</span>
+            <h3>The sync call kept failing</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>With full details on (needed for the AI to read each posting), Drushim visits every listing individually. That pushes total run time past Apify's own ~300s limit on the synchronous endpoint.</p>
+          </div>
+        </details>
+        <details class="trace-item">
+          <summary class="trace-head">
+            <span class="step-no">02</span>
+            <span class="status">failed</span>
+            <h3>The async rewrite broke too</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>Switched to Apify's async API: start the run, poll status, fetch the dataset when done. Worked in testing, then failed quietly in production.</p>
+          </div>
+        </details>
+        <details class="trace-item">
+          <summary class="trace-head">
+            <span class="step-no">03</span>
+            <span class="status">found</span>
+            <h3>Root cause: a hidden platform limit</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>n8n Cloud's Code node has its own hard 60-second execution limit, separate from the workflow timeout setting. It was invisible until it showed up in the execution log.</p>
+          </div>
+        </details>
+        <details class="trace-item">
+          <summary class="trace-head">
+            <span class="step-no">04</span>
+            <span class="status resolved">resolved</span>
+            <h3>Cleans up after itself</h3>
+            <span class="chev">›</span>
+          </summary>
+          <div class="trace-body">
+            <p>A failed call doesn't stop the run on Apify's side, it keeps eating concurrency quota. The node now aborts its own runs on timeout and pulls whatever the dataset already collected.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section id="decisions" class="reveal">
+      <div class="eyebrow">design decisions</div>
+      <h2>Choices that weren't defaults</h2>
+      <div class="cards">
+        <div class="card">
+          <span class="k">Two-tier filtering</span>
+          <p>Free regex first, AI second. They only overlap on genuinely ambiguous cases.</p>
+        </div>
+        <div class="card">
+          <span class="k">Built from what you ask</span>
+          <p>The AI's matching criteria come from whatever titles were requested that run, not a fixed list.</p>
+        </div>
+        <div class="card">
+          <span class="k">Two dedup layers</span>
+          <p>Same posting, two searched titles: deduped before the AI sees it. Same posting, two runs weeks apart: the Sheet remembers.</p>
+        </div>
+        <div class="card">
+          <span class="k">Picked by real usage</span>
+          <p>Each Apify actor was chosen by rating, review count, and real 30-day usage. Some 5-star actors had almost no active users.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="stack" class="reveal">
+      <div class="eyebrow">stack</div>
+      <h2>What runs it</h2>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Layer</th><th>Tool</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td>Orchestration</td><td><code>n8n</code> (Cloud)</td><td>wires every stage, holds credentials, chunks batches automatically</td></tr>
+            <tr><td>Scraping</td><td><code>Apify</code> actors</td><td>one dedicated actor per job source</td></tr>
+            <tr><td>Matching</td><td><code>Claude Haiku</code></td><td>reads descriptions, decides fit, scores, explains why</td></tr>
+            <tr><td>Delivery</td><td>Telegram Bot API</td><td>trigger in, ranked results out</td></tr>
+            <tr><td>Dedup and tracking</td><td>Google Sheets</td><td>append-only log with score and application status</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p style="color: var(--text-dim); font-size: 0.88rem; margin: 22px 0 10px;">Apify actors, checked against each one's real input schema:</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Source</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>LinkedIn</td><td class="notes">Takes a full search URL as input.</td></tr>
+            <tr><td>Indeed</td><td class="notes"><code>country</code> + <code>query</code> required. Guessed field names returned zero results.</td></tr>
+            <tr><td>Glassdoor</td><td class="notes">Result-count field is <code>limit</code>, not <code>maxItems</code>.</td></tr>
+            <tr><td>Drushim</td><td class="notes"><code>descriptionFormat</code> set to <code>text</code> to cut per-posting size. Only source run as an async sequence, see reliability above.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="reveal">
+      <div class="eyebrow">tracking outcomes</div>
+      <h2>A running log, not just alerts</h2>
+      <p class="intro">Every match gets appended to a Sheet with its fit score and an editable status.</p>
+      <div class="pill-row">
+        <span class="pill pending">Pending</span>
+        <span class="pill applied">Applied</span>
+        <span class="pill good">Offer</span>
+        <span class="pill bad">Rejected</span>
+        <span class="pill">Not Relevant</span>
+      </div>
+    </section>
+
+    <section class="reveal">
+      <div class="eyebrow">skills this project exercised</div>
+      <h2>What building it involved</h2>
+      <div class="skill-grid">
+        <div class="skill-tag">
+          <span class="cat">Workflow automation</span>
+          <p>Multi-stage n8n pipeline: trigger, fan-out, filtering, batching, delivery. No custom loop code.</p>
+        </div>
+        <div class="skill-tag">
+          <span class="cat">API integration</span>
+          <p>Four mismatched Apify schemas into one shape. Fixed several guessed field names along the way.</p>
+        </div>
+        <div class="skill-tag">
+          <span class="cat">Prompt engineering</span>
+          <p>Moved from one call per job to measured batch sizing after a silent truncation bug.</p>
+        </div>
+        <div class="skill-tag">
+          <span class="cat">Debugging</span>
+          <p>Traced a 322-vs-321 count mismatch back to expected dedup, not a bug.</p>
+        </div>
+        <div class="skill-tag">
+          <span class="cat">Bilingual data handling</span>
+          <p>Regex and prompt both treat Hebrew and English postings as first-class.</p>
+        </div>
+        <div class="skill-tag">
+          <span class="cat">Platform diagnosis</span>
+          <p>Found n8n's undocumented 60-second Code node limit by reading raw execution logs.</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <footer>
+    <div class="wrap">
+      <p>Built with n8n · Apify · Claude Haiku · Telegram · Google Sheets</p>
+      <p class="note">Personal project, live-tested end to end.</p>
+    </div>
+  </footer>
+</main>
+
+<script>
+(function () {
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var progressBar = document.getElementById("scrollProgress");
+  function updateProgress() {
+    var h = document.documentElement;
+    var scrolled = h.scrollTop;
+    var height = h.scrollHeight - h.clientHeight;
+    progressBar.style.width = (height > 0 ? (scrolled / height) * 100 : 0) + "%";
+  }
+  document.addEventListener("scroll", updateProgress, { passive: true });
+  updateProgress();
+
+  var navLinks = Array.prototype.slice.call(document.querySelectorAll(".site-nav a.chip"));
+  var navTargets = navLinks
+    .map(function (a) {
+      var id = a.getAttribute("href").slice(1);
+      return { link: a, el: document.getElementById(id) };
+    })
+    .filter(function (t) { return t.el; });
+
+  function setActive(id) {
+    navTargets.forEach(function (t) {
+      t.link.classList.toggle("active", t.el.id === id);
+    });
+  }
+  if ("IntersectionObserver" in window && navTargets.length) {
+    var navObserver = new IntersectionObserver(
+      function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) setActive(entry.target.id);
+        });
+      },
+      { rootMargin: "-45% 0px -50% 0px" }
+    );
+    navTargets.forEach(function (t) { navObserver.observe(t.el); });
+  }
+
+  var revealEls = Array.prototype.slice.call(document.querySelectorAll(".reveal"));
+  if ("IntersectionObserver" in window && !reduceMotion) {
+    var revealObserver = new IntersectionObserver(
+      function (entries, obs) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("visible");
+            obs.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -8% 0px" }
+    );
+    revealEls.forEach(function (el) { revealObserver.observe(el); });
+  } else {
+    revealEls.forEach(function (el) { el.classList.add("visible"); });
+  }
+
+  var pipeline = document.getElementById("pipelineDiagram");
+  if (pipeline) {
+    if ("IntersectionObserver" in window && !reduceMotion) {
+      var pipeObserver = new IntersectionObserver(
+        function (entries, obs) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              pipeline.classList.add("animate");
+              obs.disconnect();
+            }
+          });
+        },
+        { threshold: 0.2 }
+      );
+      pipeObserver.observe(pipeline);
+    }
+  }
+
+  var counters = Array.prototype.slice.call(document.querySelectorAll(".count"));
+  function animateCount(el) {
+    var target = parseInt(el.getAttribute("data-target"), 10) || 0;
+    var suffix = el.getAttribute("data-suffix") || "";
+    if (reduceMotion) {
+      el.textContent = target + suffix;
+      return;
+    }
+    var duration = 900;
+    var start = null;
+    function step(ts) {
+      if (start === null) start = ts;
+      var progress = Math.min((ts - start) / duration, 1);
+      var eased = 1 - Math.pow(1 - progress, 3);
+      el.textContent = Math.round(eased * target) + suffix;
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  if ("IntersectionObserver" in window && counters.length) {
+    var countObserver = new IntersectionObserver(
+      function (entries, obs) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            animateCount(entry.target);
+            obs.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.6 }
+    );
+    counters.forEach(function (el) { countObserver.observe(el); });
+  } else {
+    counters.forEach(function (el) {
+      el.textContent = (el.getAttribute("data-target") || "0") + (el.getAttribute("data-suffix") || "");
+    });
+  }
+
+  var termLines = Array.prototype.slice.call(document.querySelectorAll("#termBody .line"));
+  if (reduceMotion) {
+    termLines.forEach(function (l) { l.classList.add("shown"); });
+  } else {
+    termLines.forEach(function (l) { l.style.display = "none"; });
+    var i = 0;
+    function revealNext() {
+      if (i >= termLines.length) return;
+      var line = termLines[i];
+      line.style.display = "flex";
+      requestAnimationFrame(function () { line.classList.add("shown"); });
+      i += 1;
+      setTimeout(revealNext, i === 1 ? 260 : 520);
+    }
+    var termBody = document.getElementById("termBody");
+    if ("IntersectionObserver" in window && termBody) {
+      var termObserver = new IntersectionObserver(
+        function (entries, obs) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              revealNext();
+              obs.disconnect();
+            }
+          });
+        },
+        { threshold: 0.3 }
+      );
+      termObserver.observe(termBody);
+    } else {
+      revealNext();
+    }
+  }
+})();
+</script>
