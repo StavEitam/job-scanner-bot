@@ -1,0 +1,789 @@
+{
+  "name": "Job Scanner - Telegram /scan",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "7cfae4d8-571b-4cba-b9ed-360df27b0a78",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        0,
+        288
+      ],
+      "webhookId": "bd8b9a4c-8e8a-4071-8a95-462a6b2eaeac",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "56fe550b-5934-4908-b0e7-1faf94268221",
+              "leftValue": "={{ $json.message.from.id }}",
+              "rightValue": "={{ YOUR_TELEGRAM_CHAT_ID }}",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        208,
+        288
+      ],
+      "id": "de9cdbae-3df8-4ff6-af7c-e04ebfb9a8ba",
+      "name": "Filter Chat ID"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "scan-cmd",
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": "/scan",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6e4775e1-14bd-4898-a197-0ec05e6e9e28",
+      "name": "Only /scan",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const text = $json.message.text || '';\nconst withoutCmd = text.replace(/^\\/scan\\s*/i, '').trim();\nconst titles = withoutCmd.length > 0\n  ? withoutCmd.split(',').map(t => t.trim()).filter(t => t.length > 0)\n  : ['Product Analyst', 'Analyst', 'Customer Success', 'User Acquisition', 'GenAI'];\nreturn titles.map(title => ({ json: { title } }));"
+      },
+      "id": "e4c7f81a-132f-474e-92e1-3143c3ee2197",
+      "name": "Parse Titles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/hKByXkMQaC5Qt9UMN/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"count\": 25,\n  \"scrapeCompany\": true,\n  \"splitByLocation\": false,\n  \"urls\": [\n    \"https://www.linkedin.com/jobs/search/?keywords={{ encodeURIComponent($json.title) }}&location=Israel\"\n  ],\n  \"useIncognitoMode\": false\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "d32880e6-179d-4d93-b0f9-1843db085655",
+      "name": "LinkedIn Jobs Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "YOUR_APIFY_CREDENTIAL_ID",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/MXLpngmVpE8WTESQr/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"country\": \"il\",\n  \"query\": \"{{ $json.title }}\",\n  \"location\": \"Tel Aviv\",\n  \"maxRows\": 25,\n  \"radius\": \"50\",\n  \"level\": \"entry_level\",\n  \"jobType\": \"fulltime\",\n  \"enableUniqueJobs\": false,\n  \"includeSimilarJobs\": false\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "e21ea65e-c0e7-45ef-983d-8554090d48f5",
+      "name": "Indeed Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        192
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "YOUR_APIFY_CREDENTIAL_ID",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/5OaooRg0FxlRF0L1B/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"keywords\": \"{{ $json.title }}\",\n  \"location\": \"Tel Aviv\",\n  \"radius\": \"25\",\n  \"easyApply\": false,\n  \"remoteWorkType\": false,\n  \"limit\": 25\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "a0faa227-854e-4d14-addc-0b21369e2f34",
+      "name": "Glassdoor Jobs Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        384
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "YOUR_APIFY_CREDENTIAL_ID",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.apify.com/v2/acts/ixUfgPQ28VNfymq3c/run-sync-get-dataset-items",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"{{ $json.title }}\",\n  \"location\": \"תל אביב\",\n  \"maxResults\": 22,\n  \"area\": \"1\",\n  \"scope\": \"1\",\n  \"includeDetails\": true,\n  \"descriptionFormat\": \"text\",\n  \"compact\": false,\n  \"incrementalMode\": false,\n  \"allowNonIncrementalFallback\": false,\n  \"emitExpired\": false,\n  \"emitUnchanged\": false,\n  \"excludeEmptyFields\": false,\n  \"noCvRequired\": false,\n  \"notifyOnlyChanges\": false,\n  \"skipReposts\": false\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "adf8fa91-94af-48dc-bc31-7a774f1e14f5",
+      "name": "Drushim Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        576
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "YOUR_APIFY_CREDENTIAL_ID",
+          "name": "Bearer Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "SETUP NOTES\n\n1. Apify: HTTP Request nodes call https://api.apify.com/v2/acts/<actorId>/run-sync-get-dataset-items with a Bearer token (Apify API Token credential). The JSON body for each actor is a BEST-EFFORT default — open each actor page on Apify and adjust the input fields (search terms, location, limits) to match that actor's real input schema.\n\n2. The native Apify node is not installed on this instance, so Run Actor + Get Dataset Items is done via HTTP Request (one synchronous call does both).\n\n3. Google Sheet must have columns: job_id, title, company, link, date_sent, score, reason, status.\n\n4. AI model: pick a Claude model in the AI Match Decision node.\n\n5. Filter Chat ID node: replace YOUR_TELEGRAM_CHAT_ID with your own Telegram user ID (get it by messaging @userinfobot) — this is what stops random people from running the bot on your API credits."
+      },
+      "id": "cee1e817-6318-4f7d-a7f6-a23e577a9001",
+      "name": "Sticky Note 6f1872c6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "id": "57eddef5-e73e-4b81-b9ff-8454281c2d50",
+      "name": "Merge Job Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1104,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst out = [];\nfor (const it of items) {\n  const d = it.json || {};\n  const title = d.title || d.jobTitle || d.positionName || d.position || d.name || '';\n  const company = d.company || d.companyName || d.employer || d.company_name || '';\n  const link = d.link || d.url || d.jobUrl || d.applyUrl || d.job_url || d.externalUrl || '';\n  const description = d.description || d.jobDescription || d.descriptionText || d.description_text || d.snippet || d.text || '';\n  const location = d.location || d.jobLocation || d.place || d.city || '';\n  const rawId = d.id || d.jobId || d.job_id || link || (String(title) + '|' + String(company));\n  out.push({ json: {\n    job_id: String(rawId),\n    title: String(title),\n    company: String(company),\n    link: String(link),\n    location: String(location),\n    description: String(description),\n  }});\n}\nreturn out;"
+      },
+      "id": "e43edf4a-ba6c-418c-8fbf-a9783411ce6a",
+      "name": "Normalize Jobs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const seniorPattern = /\\b(senior|sr\\.?|lead|principal|staff|head of|director|vp|vice president|chief|ceo|cto|cfo)\\b/i;\nconst seniorPatternHe = /(בכיר|סמנכ\"?ל|מנכ\"?ל|ראש תחום|ראש צוות)/;\n\nconst items = $input.all();\nreturn items.filter(it => {\n  const title = String(it.json.title || '');\n  return !seniorPattern.test(title) && !seniorPatternHe.test(title);\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1536,
+        288
+      ],
+      "id": "533a5347-8f5d-47ee-ae87-d6b3709d0b95",
+      "name": "Keyword Pre-Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0) return [];\n\nconst seen = new Set();\nconst jobsList = [];\nfor (const it of items) {\n  const id = String(it.json.job_id);\n  if (seen.has(id)) continue;\n  seen.add(id);\n  jobsList.push({\n    job_id: it.json.job_id,\n    title: it.json.title,\n    company: it.json.company,\n    location: it.json.location,\n    link: it.json.link,\n    description: String(it.json.description || '').slice(0, 1500),\n  });\n}\n\nconst CHUNK_SIZE = 35;\nconst chunks = [];\nfor (let i = 0; i < jobsList.length; i += CHUNK_SIZE) {\n  chunks.push(jobsList.slice(i, i + CHUNK_SIZE));\n}\n\nreturn chunks.map((chunk) => {\n  const promptText = chunk.map((j, idx) =>\n    `Job ${idx + 1} (id: ${j.job_id}):\\nTitle: ${j.title}\\nCompany: ${j.company}\\nLocation: ${j.location}\\nDescription:\\n${j.description}\\n`\n  ).join('\\n---\\n');\n  return { json: { batchPrompt: promptText, jobCount: chunk.length, jobs: chunk } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1744,
+        288
+      ],
+      "id": "48cdef2a-f3ca-48c8-ac71-8e11a6617616",
+      "name": "Build Batch Prompt"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "claude-haiku-4-5-20251001"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Evaluate the following {{ $json.jobCount }} jobs:\n\n{{ $json.batchPrompt }}"
+            }
+          ]
+        },
+        "options": {
+          "system": "=You are a job-matching assistant. Job descriptions may be in Hebrew or English; handle both.\n\nThe user is currently searching for jobs matching ANY of these requested roles: {{ $('Parse Titles').all().map(i => i.json.title).join(', ') }}\n\nEvaluate each job against these criteria:\n1. Title relevance — the job's actual title should reasonably correspond to one of the requested roles above, OR be a clear synonym/close variant of one of them. Do not require exact string match, but reject roles that are clearly unrelated.\n2. Experience level — HARD REQUIREMENT: the candidate has at most 2 years of experience. Reject (match=\"no\") any job that requires more than 2 years of experience, or that is titled/described as Senior, Lead, Principal, Head of, Manager (people-management), Director, or similarly senior-level — even if the title otherwise matches. Accept roles explicitly labeled Junior, Entry-level, Associate, Graduate, or with no seniority qualifier and no explicit years-required above 2.\n3. Relevant technologies mentioned, if any are implied by the requested role.\n4. Remote or hybrid status is a plus but not mandatory.\n\nReturn ONLY a JSON array, no markdown, no code fences. Include exactly one element per job listed above, using its exact id value, in this shape: {\"job_id\":\"\",\"match\":\"yes\",\"score\":0,\"reason\":\"\"}.\n\"match\" is \"yes\" only if BOTH criterion 1 (title relevance) AND criterion 2 (experience ≤2 years / not senior-level) are satisfied; otherwise \"no\".\n\"score\" is an integer 0-100 reflecting overall fit across all 4 criteria.\n\"reason\" is a short explanation (max 200 chars) — mention which requested role it matched and why.",
+          "maxTokens": 8000,
+          "temperature": 0
+        }
+      },
+      "id": "073e682d-b1f2-4a2e-87a3-d64df7f6baf6",
+      "name": "AI Match Decision",
+      "type": "@n8n/n8n-nodes-langchain.anthropic",
+      "typeVersion": 1,
+      "position": [
+        1968,
+        288
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all();\nconst buildItems = $('Build Batch Prompt').all();\n\nconst out = [];\nfor (let i = 0; i < responses.length; i++) {\n  const resp = responses[i].json;\n  let text = '';\n  if (resp) {\n    if (typeof resp.content === 'string') text = resp.content;\n    else if (Array.isArray(resp.content) && resp.content[0]) text = resp.content[0].text || '';\n    else if (typeof resp.text === 'string') text = resp.text;\n  }\n  text = String(text).replace(/```json/gi, '').replace(/```/g, '').trim();\n\n  let decisions = [];\n  try { decisions = JSON.parse(text); } catch (e) { decisions = []; }\n\n  const jobs = buildItems[i]?.json?.jobs || [];\n  const byId = {};\n  jobs.forEach(j => byId[String(j.job_id)] = j);\n\n  for (const d of decisions) {\n    const job = byId[String(d.job_id)];\n    if (!job) continue;\n    out.push({ json: {\n      job_id: job.job_id,\n      title: job.title,\n      company: job.company,\n      link: job.link,\n      location: job.location,\n      match: String(d.match || 'no').toLowerCase(),\n      score: d.score != null ? d.score : 0,\n      reason: d.reason || '',\n    }});\n  }\n}\nreturn out;"
+      },
+      "id": "b2c2410c-4d77-47bb-9899-a21bda8dd0c4",
+      "name": "Parse Batch Decisions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "is-match",
+              "leftValue": "={{ $json.match }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5c8993f9-eff1-4f5e-8fde-0c9230c45872",
+      "name": "Filter Matches Only",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        2416,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Job Scanner Dedup",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "גיליון1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "options": {}
+      },
+      "id": "2aa868e2-aeed-4ae9-8776-9c3953017515",
+      "name": "Read Sent Jobs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2640,
+        288
+      ],
+      "executeOnce": true,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const sheetRows = $input.all()\n  .filter(i => i.json && i.json.job_id !== undefined && i.json.job_id !== null && String(i.json.job_id).length > 0)\n  .map(i => String(i.json.job_id));\nconst existing = new Set(sheetRows);\nconst jobs = $('Filter Matches Only').all();\nconst out = [];\nfor (const j of jobs) {\n  const id = String(j.json.job_id);\n  if (!existing.has(id)) {\n    existing.add(id);\n    out.push({ json: j.json });\n  }\n}\nreturn out;"
+      },
+      "id": "7de609c8-0e48-4c0e-b016-bbae225c923e",
+      "name": "Skip Duplicates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2864,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $(\"Telegram Trigger\").first().json.message.chat.id }}",
+        "text": "=<b>{{ $json.title }}</b>\nCompany: {{ $json.company }}\nLocation: {{ $json.location }}\nMatch score: {{ $json.score }}\nReason: {{ $json.reason }}\nLink: {{ $json.link }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "b049496b-e1f4-487c-878f-4dd1fae9b8e5",
+      "name": "Send Job to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3088,
+        192
+      ],
+      "webhookId": "be086e18-261c-4daa-8d3a-1b18769b98b9",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "list",
+          "cachedResultName": "Job Scanner Dedup",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "גיליון1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/YOUR_GOOGLE_SHEET_ID/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_id": "={{ $json.job_id }}",
+            "title": "={{ $json.title }}",
+            "company": "={{ $json.company }}",
+            "link": "={{ $json.link }}",
+            "date_sent": "={{ $now.toISO() }}",
+            "score": "={{ $json.score }}",
+            "reason": "={{ $json.reason }}",
+            "status": "ממתין"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job_id",
+              "displayName": "job_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "link",
+              "displayName": "link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date_sent",
+              "displayName": "date_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "796848dd-f4e7-417d-9f35-fa11e1769623",
+      "name": "Log Sent Job",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3088,
+        384
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Filter Chat ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Chat ID": {
+      "main": [
+        [
+          {
+            "node": "Only /scan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Only /scan": {
+      "main": [
+        [
+          {
+            "node": "Parse Titles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Titles": {
+      "main": [
+        [
+          {
+            "node": "LinkedIn Jobs Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Indeed Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Glassdoor Jobs Scraper",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Drushim Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Jobs Scraper": {
+      "main": [
+        [
+          {
+            "node": "Merge Job Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Indeed Scraper": {
+      "main": [
+        [
+          {
+            "node": "Merge Job Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Glassdoor Jobs Scraper": {
+      "main": [
+        [
+          {
+            "node": "Merge Job Sources",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Drushim Scraper": {
+      "main": [
+        [
+          {
+            "node": "Merge Job Sources",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Merge Job Sources": {
+      "main": [
+        [
+          {
+            "node": "Normalize Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Jobs": {
+      "main": [
+        [
+          {
+            "node": "Keyword Pre-Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keyword Pre-Filter": {
+      "main": [
+        [
+          {
+            "node": "Build Batch Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Batch Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Match Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Match Decision": {
+      "main": [
+        [
+          {
+            "node": "Parse Batch Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Batch Decisions": {
+      "main": [
+        [
+          {
+            "node": "Filter Matches Only",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Matches Only": {
+      "main": [
+        [
+          {
+            "node": "Read Sent Jobs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Sent Jobs": {
+      "main": [
+        [
+          {
+            "node": "Skip Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Send Job to Telegram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Sent Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}
